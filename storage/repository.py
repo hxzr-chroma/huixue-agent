@@ -30,13 +30,13 @@ class StudyRepository:
             return cursor.lastrowid
 
     def get_user_plans(self, user_id):
-        """获取用户的所有学习计划"""
+        """获取用户的所有活跃学习计划"""
         with get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
                 SELECT * FROM study_plans
-                WHERE user_id = ?
+                WHERE user_id = ? AND status = 'active'
                 ORDER BY updated_at DESC
                 """,
                 (user_id,),
@@ -235,6 +235,19 @@ class StudyRepository:
                 (plan_name, plan_id),
             )
 
+    def update_plan_status(self, plan_id, status):
+        """更新计划状态（如删除）"""
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE study_plans
+                SET status = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (status, plan_id),
+            )
+
     def _row_to_progress_dict(self, row):
         return {
             "id": row["id"],
@@ -263,4 +276,102 @@ class StudyRepository:
             "summary": row["summary"],
             "created_at": row["created_at"],
         }
+
+    def add_daily_checkin(self, plan_id, checkin_date=None):
+        """记录用户打卡"""
+        from datetime import date as date_obj
+        checkin_date = checkin_date or str(date_obj.today())
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO daily_checkins (plan_id, checkin_date, is_checked_in)
+                    VALUES (?, ?, 1)
+                    """,
+                    (plan_id, checkin_date),
+                )
+            except Exception:
+                cursor.execute(
+                    """
+                    UPDATE daily_checkins
+                    SET is_checked_in = 1, updated_at = CURRENT_TIMESTAMP
+                    WHERE plan_id = ? AND checkin_date = ?
+                    """,
+                    (plan_id, checkin_date),
+                )
+            return True
+
+    def remove_daily_checkin(self, plan_id, checkin_date=None):
+        """取消打卡"""
+        from datetime import date as date_obj
+        checkin_date = checkin_date or str(date_obj.today())
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE daily_checkins
+                SET is_checked_in = 0, updated_at = CURRENT_TIMESTAMP
+                WHERE plan_id = ? AND checkin_date = ?
+                """,
+                (plan_id, checkin_date),
+            )
+        return True
+
+    def get_daily_checkin(self, plan_id, checkin_date=None):
+        """查询某天是否打过卡"""
+        from datetime import date as date_obj
+        checkin_date = checkin_date or str(date_obj.today())
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT * FROM daily_checkins
+                WHERE plan_id = ? AND checkin_date = ?
+                """,
+                (plan_id, checkin_date),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return {
+                "id": row["id"],
+                "plan_id": row["plan_id"],
+                "checkin_date": row["checkin_date"],
+                "is_checked_in": bool(row["is_checked_in"]),
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            }
+
+    def get_checkin_streak(self, plan_id):
+        """查询连续打卡天数"""
+        from datetime import timedelta, datetime
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT checkin_date FROM daily_checkins
+                WHERE plan_id = ? AND is_checked_in = 1
+                ORDER BY checkin_date DESC
+                """,
+                (plan_id,),
+            )
+            rows = cursor.fetchall()
+            if not rows:
+                return 0
+            
+            streak = 0
+            last_date = None
+            for row in rows:
+                current_date = datetime.strptime(row["checkin_date"], "%Y-%m-%d").date()
+                if last_date is None:
+                    streak = 1
+                    last_date = current_date
+                elif last_date - current_date == timedelta(days=1):
+                    streak += 1
+                    last_date = current_date
+                else:
+                    break
+            return streak
+
 

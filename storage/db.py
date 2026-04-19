@@ -114,6 +114,21 @@ def init_db():
 
         cursor.execute(
             """
+            CREATE TABLE IF NOT EXISTS daily_checkins (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                plan_id INTEGER NOT NULL,
+                checkin_date TEXT NOT NULL,
+                is_checked_in INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (plan_id) REFERENCES study_plans(id),
+                UNIQUE(plan_id, checkin_date)
+            )
+            """
+        )
+
+        cursor.execute(
+            """
             INSERT OR IGNORE INTO users (id, username)
             VALUES (1, 'default_user')
             """
